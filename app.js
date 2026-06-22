@@ -3,124 +3,210 @@ const supabase = require('./config/supabase');
 const app = express();
 
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 app.set('view engine', 'ejs');
 
-app.get('/customer/dashboard', (req, res) => {
+// ─────────────────────────────────────────────────────────────
+//  PLACEHOLDER: hard-coded applicant_id until auth is wired in
+// ─────────────────────────────────────────────────────────────
+const CURRENT_APPLICANT_ID = 1;
 
-    const customer = {
-        name: 'Navin'
-    };
+// ─────────────────────────────────────────────────────────────
+//  CUSTOMER DASHBOARD
+//  Fetches: applicant name, application counts by status, and
+//  the 5 most recent applications.
+// ─────────────────────────────────────────────────────────────
+app.get('/customer/dashboard', async (req, res) => {
+    try {
+        // 1. Applicant name
+        const { data: applicant, error: applicantError } = await supabase
+            .from('applicants')
+            .select('first_name, last_name')
+            .eq('applicant_id', CURRENT_APPLICANT_ID)
+            .single();
 
-    const loanSummary = {
-        totalApplications: 5,
-        underReview: 2,
-        approvedApplications: 2,
-        rejectedApplications: 1
-    };
+        if (applicantError) throw applicantError;
 
-    const recentApplications = [
-        {
-            applicationID: 101,
-            loanType: 'Personal Loan',
-            applicationDate: '2025-06-01',
-            amount: 500000,
-            status: 'Under Review'
-        }
-    ];
+        // 2. All applications for this applicant (for counts + recent list)
+        const { data: applications, error: appsError } = await supabase
+            .from('applications')
+            .select(`
+                application_id,
+                application_number,
+                loan_amount_requested,
+                status,
+                submitted_at,
+                loan_types ( loan_type_name )
+            `)
+            .eq('applicant_id', CURRENT_APPLICANT_ID)
+            .order('submitted_at', { ascending: false });
 
-    res.render('customer/customer_dashboard', {
-        customer,
-        loanSummary,
-        recentApplications
-    });
+        if (appsError) throw appsError;
 
+        // 3. Compute summary counts
+        const loanSummary = {
+            totalApplications: applications.length,
+            underReview: applications.filter(a =>
+                ['Submitted', 'Under Review', 'Pending'].includes(a.status)
+            ).length,
+            approvedApplications: applications.filter(a => a.status === 'Approved').length,
+            rejectedApplications: applications.filter(a => a.status === 'Rejected').length
+        };
+
+        // 4. Format recent 5 for the table partial
+        const recentApplications = applications.slice(0, 5).map(a => ({
+            applicationID: a.application_number,
+            loanType: a.loan_types?.loan_type_name || '—',
+            applicationDate: new Date(a.submitted_at).toLocaleDateString('en-IN'),
+            amount: a.loan_amount_requested,
+            status: a.status
+        }));
+
+        const customer = {
+            name: `${applicant.first_name} ${applicant.last_name}`
+        };
+
+        res.render('customer/customer_dashboard', {
+            customer,
+            loanSummary,
+            recentApplications
+        });
+
+    } catch (err) {
+        console.error('Dashboard error:', err.message);
+        res.status(500).send('Could not load dashboard. Please try again later.');
+    }
 });
 
-app.get('/customer/profile', (req, res) => {
+// ─────────────────────────────────────────────────────────────
+//  CUSTOMER PROFILE
+//  Fetches applicant row with joined lookup names.
+// ─────────────────────────────────────────────────────────────
+app.get('/customer/profile', async (req, res) => {
+    try {
+        const { data: row, error } = await supabase
+            .from('applicants')
+            .select(`
+                first_name,
+                middle_name,
+                last_name,
+                dob,
+                pan_number,
+                aadhaar_number,
+                email,
+                phone,
+                address_line1,
+                address_line2,
+                city,
+                pincode,
+                employer_name,
+                monthly_income,
+                bank_name,
+                account_number,
+                created_at,
+                gender ( gender_name ),
+                states ( state_name ),
+                occupation ( occupation_name ),
+                employment_types ( employment_type_name )
+            `)
+            .eq('applicant_id', CURRENT_APPLICANT_ID)
+            .single();
 
-    const customer = {
-        name: 'Navin Vishwa',
-        email: 'navin.vishwa@example.com',
-        phone: '9876543210',
-        address: '123 Green Avenue, Sector 45',
-        city: 'Bengaluru',
-        state: 'Karnataka',
-        pincode: '560034',
-        dob: new Date('1990-07-15'),
-        gender: 'Male',
-        pan: 'ABCDE1234F',
-        aadhaar: '123412341234',
-        occupation: 'Software Engineer',
-        employer: 'Rupya AI Technologies',
-        annualIncome: '12,00,000',
-        preferredLoanType: 'Home Loan',
-        lastApplicationStatus: 'Approved',
-        riskCategory: 'Low',
-        accountCreated: new Date('2024-01-12')
-    };
+        if (error) throw error;
 
-    res.render('customer/customer_profile', {
-        customer
-    });
+        const customer = {
+            name: [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' '),
+            email: row.email,
+            phone: row.phone,
+            address: [row.address_line1, row.address_line2].filter(Boolean).join(', '),
+            city: row.city,
+            state: row.states?.state_name || '—',
+            pincode: row.pincode,
+            dob: row.dob ? new Date(row.dob) : null,
+            gender: row.gender?.gender_name || '—',
+            pan: row.pan_number || '—',
+            aadhaar: row.aadhaar_number || '—',
+            occupation: row.occupation?.occupation_name || '—',
+            employer: row.employer_name || '—',
+            employmentType: row.employment_types?.employment_type_name || '—',
+            annualIncome: row.monthly_income
+                ? (row.monthly_income * 12).toLocaleString('en-IN')
+                : '—',
+            bankName: row.bank_name || '—',
+            accountNumber: row.account_number || '—',
+            accountCreated: new Date(row.created_at)
+        };
 
+        res.render('customer/customer_profile', { customer });
+
+    } catch (err) {
+        console.error('Profile error:', err.message);
+        res.status(500).send('Could not load profile. Please try again later.');
+    }
 });
 
+// ─────────────────────────────────────────────────────────────
+//  LOAN STATUS / APPLICATION TRACKER
+//  Fetches all applications for current applicant.
+// ─────────────────────────────────────────────────────────────
+app.get('/customer/loan-status', async (req, res) => {
+    try {
+        const { data: rows, error } = await supabase
+            .from('applications')
+            .select(`
+                application_id,
+                application_number,
+                loan_amount_requested,
+                status,
+                submitted_at,
+                loan_types ( loan_type_name )
+            `)
+            .eq('applicant_id', CURRENT_APPLICANT_ID)
+            .order('submitted_at', { ascending: false });
 
-app.get('/customer/loan-status', (req, res) => {
+        if (error) throw error;
 
-    const applications = [
-        {
-            applicationID: 101,
-            loanType: 'Personal Loan',
-            applicationDate: '2025-06-01',
-            amount: 500000,
-            status: 'Under Review'
-        },
-        {
-            applicationID: 102,
-            loanType: 'Education Loan',
-            applicationDate: '2025-05-15',
-            amount: 300000,
-            status: 'Approved'
-        }
-    ];
+        const applications = rows.map(a => ({
+            applicationID: a.application_number,
+            loanType: a.loan_types?.loan_type_name || '—',
+            applicationDate: new Date(a.submitted_at).toLocaleDateString('en-IN'),
+            amount: a.loan_amount_requested,
+            status: a.status
+        }));
 
-    res.render('customer/application_tracker', {
-        applications
-    });
+        res.render('customer/application_tracker', { applications });
 
+    } catch (err) {
+        console.error('Loan status error:', err.message);
+        res.status(500).send('Could not load loan status. Please try again later.');
+    }
 });
 
-
+// ─────────────────────────────────────────────────────────────
+//  LOAN APPLICATION WIZARD (steps — GET)
+// ─────────────────────────────────────────────────────────────
 app.get('/customer/apply-loan', (req, res) => {
-
     res.render('loan_application/step1_personalInfo');
-
 });
 
 app.get('/customer/apply-loan/step2', (req, res) => {
-
     res.render('loan_application/step2_loanDetails');
-
 });
 
 app.get('/customer/apply-loan/step3', (req, res) => {
-
     res.render('loan_application/step3_employmentDetails');
 });
 
 app.get('/customer/apply-loan/step4', (req, res) => {
-
     res.render('loan_application/step4_financialInformation');
 });
 
 app.get('/customer/apply-loan/step5', (req, res) => {
-
     res.render('loan_application/step5_creditInformation');
 });
 
 app.get('/customer/apply-loan/step6', (req, res) => {
-
+    // Step 6 review — still uses session data (to be wired in Phase 3)
     const applicationReview = {
         personal: {
             name: 'Navin Vishwa',
@@ -154,13 +240,64 @@ app.get('/customer/apply-loan/step6', (req, res) => {
         }
     };
 
-    res.render('loan_application/step6_reviewSubmit', {
-        applicationReview
-    });
+    res.render('loan_application/step6_reviewSubmit', { applicationReview });
 });
 
-app.get('/customer/apply-loan/success', (req, res) => {
+// ─────────────────────────────────────────────────────────────
+//  LOAN APPLICATION — SUBMIT (POST)
+//  Inserts a new application row into Supabase.
+// ─────────────────────────────────────────────────────────────
+app.post('/customer/apply-loan/submit', async (req, res) => {
+    try {
+        const {
+            loan_type_id,
+            loan_amount_requested,
+            loan_tenure_months,
+            loan_purpose,
+            repayment_id
+        } = req.body;
 
+        // Generate application number: RU + year + 6-digit random
+        const appNumber = `RU${new Date().getFullYear()}${String(Math.floor(Math.random() * 1000000)).padStart(6, '0')}`;
+
+        const { data, error } = await supabase
+            .from('applications')
+            .insert({
+                application_number: appNumber,
+                applicant_id: CURRENT_APPLICANT_ID,
+                loan_type_id: parseInt(loan_type_id),
+                loan_amount_requested: parseFloat(loan_amount_requested),
+                loan_tenure_months: parseInt(loan_tenure_months),
+                loan_purpose: loan_purpose || null,
+                repayment_id: repayment_id ? parseInt(repayment_id) : null,
+                status: 'Submitted'
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        const applicationResult = {
+            applicationId: data.application_number,
+            status: data.status,
+            nextSteps: [
+                'Document Verification',
+                'AI Risk Assessment',
+                'Analyst Review',
+                'Decision'
+            ]
+        };
+
+        res.render('loan_application/application_success', { applicationResult });
+
+    } catch (err) {
+        console.error('Submit error:', err.message);
+        res.status(500).send('Could not submit application. Please try again.');
+    }
+});
+
+// Legacy success GET (kept for backward compatibility)
+app.get('/customer/apply-loan/success', (req, res) => {
     const applicationResult = {
         applicationId: 'RU2026000215',
         status: 'Submitted',
@@ -171,29 +308,22 @@ app.get('/customer/apply-loan/success', (req, res) => {
             'Decision'
         ]
     };
-
-    res.render('loan_application/application_success', {
-        applicationResult
-    });
+    res.render('loan_application/application_success', { applicationResult });
 });
 
 app.get('/customer/application-success', (req, res) => {
-
     const application = {
         applicationID: 100245,
         loanType: 'Personal Loan',
         amount: 500000,
         applicationDate: '18 June 2026'
     };
-
-    res.render('loan_application/application_success', {
-        application
-    });
-
+    res.render('loan_application/application_success', { application });
 });
 
+// ─────────────────────────────────────────────────────────────
+//  START SERVER
+// ─────────────────────────────────────────────────────────────
 app.listen(3000, () => {
-
-    console.log('Server running on port 3000');
-
+    console.log('Rupya AI server running on http://localhost:3000');
 });
