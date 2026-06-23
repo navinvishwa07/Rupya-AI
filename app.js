@@ -1,4 +1,5 @@
 const express = require('express');
+const session = require('express-session');
 const supabase = require('./config/supabase');
 const app = express();
 
@@ -6,7 +7,19 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.set('view engine', 'ejs');
 
-const CURRENT_APPLICANT_ID = 1;
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'rupya-dev-secret',
+    resave: false,
+    saveUninitialized: false
+}));
+
+const CURRENT_APPLICANT_ID = 2;
+
+// DEV ONLY — remove when auth is live
+app.get('/dev/login/:id', (req, res) => {
+    req.session.applicantId = parseInt(req.params.id);
+    res.send(`Session set: applicant_id = ${req.params.id}`);
+});
 
 app.get('/customer/dashboard', async (req, res) => {
     try {
@@ -14,9 +27,10 @@ app.get('/customer/dashboard', async (req, res) => {
             .from('applicants')
             .select('first_name, last_name')
             .eq('applicant_id', CURRENT_APPLICANT_ID)
-            .single();
+            .maybeSingle();
 
         if (applicantError) throw applicantError;
+        if (!applicant) return res.status(404).send('Applicant not found for ID: ' + CURRENT_APPLICANT_ID);
 
         const { data: applications, error: appsError } = await supabase
             .from('applications')
@@ -94,9 +108,10 @@ app.get('/customer/profile', async (req, res) => {
                 employment_types ( employment_type_name )
             `)
             .eq('applicant_id', CURRENT_APPLICANT_ID)
-            .single();
+            .maybeSingle();
 
         if (error) throw error;
+        if (!row) return res.status(404).send('Applicant not found for ID: ' + CURRENT_APPLICANT_ID);
 
         const customer = {
             name: [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' '),
@@ -248,18 +263,14 @@ app.post('/customer/apply-loan/submit', async (req, res) => {
 
         if (error) throw error;
 
-        const applicationResult = {
-            applicationId: data.application_number,
-            status: data.status,
-            nextSteps: [
-                'Document Verification',
-                'AI Risk Assessment',
-                'Analyst Review',
-                'Decision'
-            ]
-        };
-
-        res.render('loan_application/application_success', { applicationResult });
+        res.render('loan_application/application_success', {
+            application: {
+                applicationID: data.application_number,
+                loanType: '—',
+                amount: parseFloat(data.loan_amount_requested).toLocaleString('en-IN'),
+                applicationDate: new Date(data.submitted_at).toLocaleDateString('en-IN')
+            }
+        });
 
     } catch (err) {
         console.error('Submit error:', err.message);
@@ -268,27 +279,25 @@ app.post('/customer/apply-loan/submit', async (req, res) => {
 });
 
 app.get('/customer/apply-loan/success', (req, res) => {
-    const applicationResult = {
-        applicationId: 'RU2026000215',
-        status: 'Submitted',
-        nextSteps: [
-            'Document Verification',
-            'AI Risk Assessment',
-            'Analyst Review',
-            'Decision'
-        ]
-    };
-    res.render('loan_application/application_success', { applicationResult });
+    res.render('loan_application/application_success', {
+        application: {
+            applicationID: 'RU2026000215',
+            loanType: '—',
+            amount: '0',
+            applicationDate: new Date().toLocaleDateString('en-IN')
+        }
+    });
 });
 
 app.get('/customer/application-success', (req, res) => {
-    const application = {
-        applicationID: 100245,
-        loanType: 'Personal Loan',
-        amount: 500000,
-        applicationDate: '18 June 2026'
-    };
-    res.render('loan_application/application_success', { application });
+    res.render('loan_application/application_success', {
+        application: {
+            applicationID: 100245,
+            loanType: 'Personal Loan',
+            amount: '5,00,000',
+            applicationDate: '18 June 2026'
+        }
+    });
 });
 
 app.listen(3000, () => {
