@@ -521,15 +521,29 @@ app.get('/customer/loan-status', isCustomer, async (req, res) => {
     }
 });
 
-app.get('/customer/apply-loan', isCustomer, (req, res) => {
+app.get('/customer/apply-loan', isCustomer, async (req, res) => {
     req.session.loanApplication = {
         ...req.session.loanApplication,
         ...req.query
     };
 
-    res.render('customer/loan_application/step1_personalInfo', {
-        loanApp: req.session.loanApplication || {}
-    });
+    try {
+        const { data: profile, error: profileError } = await supabase
+            .from('applicants')
+            .select('first_name, middle_name, last_name, dob, pan_number, aadhaar_number, email, phone, address_line1, address_line2, city, pincode')
+            .eq('applicant_id', req.user.applicant_id)
+            .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        res.render('customer/loan_application/step1_personalInfo', {
+            loanApp: req.session.loanApplication || {},
+            profile: profile || {}
+        });
+    } catch (err) {
+        console.error('Loan step 1 error:', err.message || err);
+        res.status(500).send('Could not load loan application. Please try again later.');
+    }
 });
 
 app.get('/customer/apply-loan/step2', isCustomer, (req, res) => {

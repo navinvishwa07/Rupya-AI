@@ -80,6 +80,7 @@
                                     maxlength="30"
                                     class="form-control border border-dark"
                                     name="firstName"
+                                    value="<%= loanApp.firstName || profile.first_name || '' %>"
                                     required>
 
                             </div>
@@ -96,6 +97,7 @@
                                     maxlength="30"
                                     class="form-control border border-dark"
                                     name="lastName"
+                                    value="<%= loanApp.lastName || profile.last_name || '' %>"
                                     required>
 
                             </div>
@@ -114,6 +116,7 @@
                                     type="date"
                                     class="form-control border border-dark"
                                     name="dob"
+                                    value="<%= loanApp.dob || profile.dob || '' %>"
                                     required>
 
                             </div>
@@ -130,9 +133,9 @@
                                     required>
 
                                     <option value="">Select Gender</option>
-                                    <option>Male</option>
-                                    <option>Female</option>
-                                    <option>Other</option>
+                                    <option value="Male" <%= (loanApp.gender === 'Male' || profile.gender === 'Male') ? 'selected' : '' %>>Male</option>
+                                    <option value="Female" <%= (loanApp.gender === 'Female' || profile.gender === 'Female') ? 'selected' : '' %>>Female</option>
+                                    <option value="Other" <%= (loanApp.gender === 'Other' || profile.gender === 'Other') ? 'selected' : '' %>>Other</option>
 
                                 </select>
 
@@ -154,6 +157,7 @@
                                     maxlength="10"
                                     class="form-control border border-dark"
                                     name="mobile"
+                                    value="<%= loanApp.mobile || profile.phone || '' %>"
                                     required>
 
                             </div>
@@ -168,6 +172,7 @@
                                     type="email"
                                     class="form-control border border-dark"
                                     name="email"
+                                    value="<%= loanApp.email || profile.email || '' %>"
                                     required>
 
                             </div>
@@ -187,9 +192,10 @@
                                     maxlength="10"
                                     minlength="10"
                                     pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}"
-                                    splaceholder="ABCDE1234F"
+                                    placeholder="ABCDE1234F"
                                     class="form-control border border-dark"
                                     name="pan"
+                                    value="<%= loanApp.pan || profile.pan_number || '' %>"
                                     required>
 
                             </div>
@@ -206,6 +212,7 @@
                                     minlength="12"
                                     class="form-control border border-dark"
                                     name="aadhaar"
+                                    value="<%= loanApp.aadhaar || profile.aadhaar_number || '' %>"
                                     required>
 
                             </div>
